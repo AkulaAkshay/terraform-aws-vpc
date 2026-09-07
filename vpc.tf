@@ -1,10 +1,10 @@
-#vpc
-resource "aws_vpc" "main" { #we are creating only vpc. so, we will keep the name as main or this
+# VPC
+resource "aws_vpc" "main" {
   cidr_block       = var.vpc_cidr
   instance_tenancy = "default"
   enable_dns_hostnames = true
 
-  tags = merge (
+  tags = merge(
     var.vpc_tags,
     local.common_tags,
     {
@@ -13,11 +13,11 @@ resource "aws_vpc" "main" { #we are creating only vpc. so, we will keep the name
   )
 }
 
-#IGW
+# IGW
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
-  tags = merge (
+  tags = merge(
     var.igw_tags,
     local.common_tags,
     {
@@ -26,166 +26,165 @@ resource "aws_internet_gateway" "main" {
   )
 }
 
-#subnet - public
+# Public Subnets
 resource "aws_subnet" "public" {
-  count = length(var.public_subnet_cidr)
+  count = length(var.public_subnet_cidrs)
   vpc_id     = aws_vpc.main.id
-  cidr_block = var.public_subnet_cidr[count.index]
+  cidr_block = var.public_subnet_cidrs[count.index]
   availability_zone = local.az_names[count.index]
   map_public_ip_on_launch = true
 
-
-  tags = merge (
+  tags = merge(
     var.public_subnet_tags,
     local.common_tags,
     {
-      # roboshop-dev-public-us-east-1a
-      Name = "${local.common_name_suffix}-public-${local.az_names[count.index]}"
+        Name = "${local.common_name_suffix}-public-${local.az_names[count.index]}" # roboshop-dev-public-us-east-1a
     }
   )
 }
 
-#subnet - private
+
+# Private Subnets
 resource "aws_subnet" "private" {
-  count = length(var.public_subnet_cidr)
-  vpc_id = aws_vpc.main.id
-  cidr_block = var.private_subnet_cidr[count.index]
+  count = length(var.private_subnet_cidrs)
+  vpc_id     = aws_vpc.main.id
+  cidr_block = var.private_subnet_cidrs[count.index]
   availability_zone = local.az_names[count.index]
 
-  tags = merge (
+  tags = merge(
     var.private_subnet_tags,
     local.common_tags,
     {
-      Name = "${local.common_name_suffix}-private-${local.az_names[count.index]}"
+        Name = "${local.common_name_suffix}-private-${local.az_names[count.index]}" # roboshop-dev-private-us-east-1a
     }
   )
 }
 
-#subnet - database
+# Database Subnets
 resource "aws_subnet" "database" {
-  count = length(var.database_subnet_cidr)
-  vpc_id = aws_vpc.main.id
-  cidr_block = var.database_subnet_cidr[count.index]
+  count = length(var.database_subnet_cidrs)
+  vpc_id     = aws_vpc.main.id
+  cidr_block = var.database_subnet_cidrs[count.index]
   availability_zone = local.az_names[count.index]
 
-  tags = merge (
+  tags = merge(
     var.database_subnet_tags,
     local.common_tags,
     {
-      Name = "${local.common_name_suffix}-database-${local.az_names[count.index]}"
+        Name = "${local.common_name_suffix}-database-${local.az_names[count.index]}" # roboshop-dev-database-us-east-1a
     }
   )
 }
 
-#route table - public
+
+# Public Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
-  tags = merge (
+  tags = merge(
     var.public_route_table_tags,
     local.common_tags,
     {
-      Name = "${local.common_name_suffix}-public"
+        Name = "${local.common_name_suffix}-public"
     }
   )
 }
 
-#route table - private
+
+# Private Route Table
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
-  tags = merge (
+  tags = merge(
     var.private_route_table_tags,
     local.common_tags,
     {
-      Name = "${local.common_name_suffix}-private"
+        Name = "${local.common_name_suffix}-private"
     }
   )
 }
 
-#route table - database
+
+# Database Route Table
 resource "aws_route_table" "database" {
   vpc_id = aws_vpc.main.id
 
-  tags = merge (
+  tags = merge(
     var.database_route_table_tags,
     local.common_tags,
     {
-      Name = "${local.common_name_suffix}-database"
+        Name = "${local.common_name_suffix}-database"
     }
   )
 }
 
-# route - public
+# Public Route
 resource "aws_route" "public" {
   route_table_id            = aws_route_table.public.id
   destination_cidr_block    = "0.0.0.0/0"
   gateway_id = aws_internet_gateway.main.id
 }
 
-#EIP
+# Elastic IP
 resource "aws_eip" "nat" {
   domain   = "vpc"
 
-  tags = merge (
+  tags = merge(
     var.eip_tags,
     local.common_tags,
     {
-      Name = "${local.common_name_suffix}-nat"
+        Name = "${local.common_name_suffix}-nat"
     }
   )
 }
 
-#NAT gateway
+
+# NAT gateway
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id
 
-  tags = merge (
+  tags = merge(
     var.nat_gateway_tags,
     local.common_tags,
     {
-      Name = "${local.common_name_suffix}-nat"
+        Name = "${local.common_name_suffix}"
     }
   )
 
   # To ensure proper ordering, it is recommended to add an explicit dependency
   # on the Internet Gateway for the VPC.
-  # tf will take care of dependency only w,.r.t infra creation it will not tc of dependency at runtime. so, to ensure the dependency during runtime we will use depends_on explicitly
   depends_on = [aws_internet_gateway.main]
 }
 
-# route - private egress through NAT gateway
+# Private egress route through NAT
 resource "aws_route" "private" {
   route_table_id            = aws_route_table.private.id
   destination_cidr_block    = "0.0.0.0/0"
   nat_gateway_id = aws_nat_gateway.nat.id
 }
 
-# route - database egress through NAT gateway
+# Database egress route through NAT
 resource "aws_route" "database" {
   route_table_id            = aws_route_table.database.id
   destination_cidr_block    = "0.0.0.0/0"
   nat_gateway_id = aws_nat_gateway.nat.id
 }
 
-# route table association - public
 resource "aws_route_table_association" "public" {
-  count = length(var.public_subnet_cidr)
+  count = length(var.public_subnet_cidrs)
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
 
-# route table association - private
 resource "aws_route_table_association" "private" {
-  count = length(var.private_subnet_cidr)
+  count = length(var.private_subnet_cidrs)
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
 
-# route table association - database
 resource "aws_route_table_association" "database" {
-  count = length(var.database_subnet_cidr)
+  count = length(var.database_subnet_cidrs)
   subnet_id      = aws_subnet.database[count.index].id
   route_table_id = aws_route_table.database.id
 }
